@@ -85,6 +85,7 @@ static u32 add(u32 v, u32 n) {
 
 #define CASE    break; case
 #define DEFAULT break; default
+
 static void register_ins(M *m, u32 a, u32 b, u32 op, u32 n) {
     assert(a < 16 && b < 16);
     // XXX set m->flags too
