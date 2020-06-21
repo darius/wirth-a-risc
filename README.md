@@ -1,2 +1,3 @@
-# wirth-a-risc
-Wirth's RISC machine in software
+# Wirth's RISC machine emulated in C
+
+Floating point and interrupts omitted, at least for now.
