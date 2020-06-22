@@ -19,6 +19,7 @@ static void *allot(size_t n) {
 typedef uint8_t  u8;
 typedef uint32_t u32;
 typedef int32_t  i32;
+typedef uint64_t u64;
 
 typedef struct M M;
 struct M {
@@ -26,8 +27,14 @@ struct M {
     u32 pc;    // program counter
     u8 *mem;   // memory; must be of size `cap`
     u32 cap;   // in bytes; must be a whole # of words
-    u8  flags; // just 4 bits, TODO
+    u32 rh;    // special H register for the remainder from division
+    u8  flags; // just 4 bits: see the enum below
 };
+
+// Offsets of the flag bits within the flags field.
+// N: negative; Z: zero; C: carry; V: overflow.
+// TODO what is Wirth's endianness for these bits? Is this backwards?
+enum { FN, FZ, FC, FV, };
 
 static u8 fetch8(M *m, u32 addr) {
     // XXX bounds check
@@ -52,6 +59,10 @@ static void store32(M *m, u32 addr, u32 value) {
 
 static u32 field(u32 value, u32 offset, u32 width) {
     return (value >> offset) & ((1u << width) - 1);
+}
+
+static u32 sign_extend(u32 sign, u32 value) {
+    return value; // XXX
 }
 
 enum {
@@ -86,25 +97,55 @@ static u32 add(u32 v, u32 n) {
 #define CASE    break; case
 #define DEFAULT break; default
 
-static void register_ins(M *m, u32 a, u32 b, u32 op, u32 n) {
+static void register_ins(M *m, u32 f01, u32 u, u32 v, u32 a, u32 b, u32 op, u32 n) {
     assert(a < 16 && b < 16);
-    // XXX set m->flags too
-    // TODO handle u=1, from "section 4 Special features"
+    u32 va, nflag, zflag, cflag=0, vflag=0; // result value and flags
     switch (op) {
-    CASE MOV: m->r[a] = n;
-    CASE LSL: m->r[a] = m->r[b] << n;
-    CASE ASR: m->r[a] = signed_shift_right(m->r[b], n);
-    CASE ROR: m->r[a] = rotate_right(m->r[b], n);
-    CASE AND: m->r[a] = m->r[b] & n;
-    CASE ANN: m->r[a] = m->r[b] & ~n;
-    CASE IOR: m->r[a] = m->r[b] | n;
-    CASE XOR: m->r[a] = m->r[b] ^ n;
-    CASE ADD: m->r[a] = add(m->r[b], n);
-    CASE SUB: m->r[a] = add(m->r[b], -n);  // TODO portable?
-    CASE MUL: m->r[a] = m->r[b] * n; // TODO portable? should it be signed?
-    CASE DIV: m->r[a] = m->r[b] / n; // TODO portable rounding; what on zero divide? should it be signed?
-    DEFAULT:  panic("Unknown register instruction");
+        CASE MOV: {
+            // TODO this is the *only* place using the f01 and v arguments
+            //  so it seems especially inefficient to always pass them.
+            if      (!u)  va = n;
+            else if (f01) va = n << 16u;
+            else if (v)   va = m->flags;
+            else          va = m->rh;
+        }
+        CASE LSL: va = m->r[b] << n;
+        CASE ASR: va = signed_shift_right(m->r[b], n);
+        CASE ROR: va = rotate_right(m->r[b], n);
+        CASE AND: va = m->r[b] & n;
+        CASE ANN: va = m->r[b] & ~n;
+        CASE IOR: va = m->r[b] | n;
+        CASE XOR: va = m->r[b] ^ n;
+        CASE ADD: {
+            u32 carry_in = u ? field(m->flags,FC,1) : 0;
+            u64 sum = (u64)m->r[b] + (u64)n + (u64)carry_in;
+            va = (u32)sum;
+            cflag = 1u & (sum >> 32u); // TODO portable?
+            vflag = 0; // XXX how exactly is this defined?
+        }
+        CASE SUB: {
+            u32 carry_in = u ? field(m->flags,FC,1) : 0;
+            u64 sum = (u64)m->r[b] - (u64)n + (u64)carry_in; // TODO right? i64?
+            va = (u32)sum;
+            cflag = 1u & (sum >> 32u); // TODO portable?
+            vflag = 0; // XXX how exactly is this defined?
+        }
+        CASE MUL: {
+            if (u) va = m->r[b] * n; // TODO portable?
+            else   va = (u32) ((i32)m->r[b] * (i32)n); // TODO portable?
+        }
+        CASE DIV: {
+            va = m->r[b] / n; // TODO portable rounding; what on zero divide? should it be signed?
+            m->rh = 0; // XXX remainder
+        }
+        DEFAULT:
+            panic("Unknown register instruction");
+            va = 0; // (just for the C compiler to think va is always set)
     }
+    nflag = (0 != (va & (1u << 31u)));
+    zflag = (0 != va);
+    m->flags = (nflag << FN) | (zflag << FZ) | (cflag << FC) | (vflag << FV);
+    m->r[a] = va;
 }
 
 enum {
@@ -114,32 +155,94 @@ enum {
     STB,
 };
 
-// TODO optional tracing
-static void step(M *m) {
-    u32 ir = fetch32(m, m->pc);
-    switch (ir >> 28) {
-    CASE 0: case 2:  // TODO well this CASEcase thing is ugly
-        if (field(ir, 4, 12) != 0) panic("Crap in instruction");
-        register_ins(m, field(ir, 24, 4), field(ir, 20, 4), field(ir, 16, 4),
-                     m->r[field(ir, 0, 4)]);
-    CASE 4: case 5: case 6: case 7:
-        register_ins(m, field(ir, 24, 4), field(ir, 20, 4), field(ir, 16, 4),
-                     field(ir, 0, 16));
-    CASE LDW:
-        m->r[field(ir,24,4)] = fetch32(m, add(field(ir,20,4), field(ir,0,20)));
-    CASE LDB:
-        m->r[field(ir,24,4)] = fetch8(m, add(field(ir,20,4), field(ir,0,20)));
-    CASE STW:
-        store32(m, add(field(ir,20,4), field(ir,0,20)),
-                m->r[field(ir,24,4)]);
-    CASE STB:
-        store8(m, add(field(ir,20,4), field(ir,0,20)),
-               0xFF & m->r[field(ir,24,4)]);
-    // TODO "section 3 Branch instructions"
-    DEFAULT:
-        panic("Unknown instruction");
+static u32 bit(u32 value, u32 offset) {
+    return field(value, offset, 1);
+}
+
+static void branch_ins(M *m, u32 u, u32 v, u32 cond, u32 off_or_dest) {
+    assert(u || off_or_dest < 16);
+    int taken;
+    switch (cond) {
+        CASE 0x0: taken =  bit(m->flags,FN);
+        CASE 0x1: taken =  bit(m->flags,FZ);
+        CASE 0x2: taken =  bit(m->flags,FC);
+        CASE 0x3: taken =  bit(m->flags,FV);
+        CASE 0x4: taken = !bit(m->flags,FC) || bit(m->flags,FZ);
+        CASE 0x5: taken =  bit(m->flags,FN) ^ bit(m->flags,FV);
+        CASE 0x6: taken = ((bit(m->flags,FN) ^ bit(m->flags,FV))
+                           | bit(m->flags,FZ));
+        CASE 0x7: taken = 1;
+        // The rest mirror the above, but inverted:
+        CASE 0x8: taken = !( bit(m->flags,FN));
+        CASE 0x9: taken = !( bit(m->flags,FZ));
+        CASE 0xA: taken = !( bit(m->flags,FC));
+        CASE 0xB: taken = !( bit(m->flags,FV));
+        CASE 0xC: taken = !(!bit(m->flags,FC) || bit(m->flags,FZ));
+        CASE 0xD: taken = !( bit(m->flags,FN) ^ bit(m->flags,FV));
+        CASE 0xE: taken = !(((bit(m->flags,FN) ^ bit(m->flags,FV))
+                             | bit(m->flags,FZ)));
+        CASE 0xF: taken = !( 1);
+        DEFAULT: assert(0);
+    }
+    if (taken) {
+        // N.B. Wirth says pc+1 instead of pc for each of the next two lines,
+        //  but we already added 1 in step().
+        if (v) m->r[15] = m->pc;
+        m->pc = (u ? m->pc + off_or_dest // TODO portable overflow?
+                   : m->r[off_or_dest]);
     }
 }
+
+#define F01  field(ir,30, 1)
+#define U    field(ir,29, 1)
+#define V    field(ir,28, 1)
+#define COND field(ir,24, 4)
+#define A    field(ir,24, 4)
+#define B    field(ir,20, 4)
+#define OP   field(ir,16, 4)
+#define C    field(ir, 0, 4)
+#define IM   field(ir, 0,16)
+#define OFF  field(ir, 0,20)
+
+// TODO optional tracing
+static void step(M *m) {
+    u32 ir = fetch32(m, m->pc++); // TODO portable overflow?
+    // TODO also, do any instructions besides branch_ins() use the pc value,
+    //   implying we shouldn't increment it here?
+    switch (ir >> 28) {
+        CASE 0: case 2: // TODO well this CASEcase thing is ugly
+            if (field(ir,4,12) != 0) panic("Crap in register instruction");
+            register_ins(m, F01, U, V, A, B, OP, m->r[C]);
+        CASE 4: case 5: case 6: case 7:
+            register_ins(m, F01, U, V, A, B, OP, sign_extend(V, IM));
+        CASE LDW:
+            m->r[A] = fetch32(m, add(m->r[B], OFF)); // TODO sign extend? (also below)
+        CASE LDB:
+            m->r[A] = fetch8(m, add(m->r[B], OFF));
+        CASE STW:
+            store32(m, add(m->r[B], OFF), m->r[A]);
+        CASE STB:
+            store8(m, add(m->r[B], OFF), m->r[A] & 0xFF);
+        CASE 0xC: case 0xD:
+            if (field(ir,4,20) != 0) panic("Crap in branch instruction");
+            branch_ins(m, U, V, COND, m->r[C]);
+        CASE 0xE: case 0xF:
+            branch_ins(m, U, V, COND, field(ir,0,24)); // TODO sign extend?
+        DEFAULT:
+            panic("Unknown instruction");
+    }
+}
+
+#undef F01
+#undef U
+#undef V
+#undef COND
+#undef A
+#undef B
+#undef OP
+#undef C
+#undef IM
+#undef OFF
 
 static void run(M *m) {
     for (int i = 0; i < 1; ++i) {  // TODO timeslices or something; and a way to HALT
