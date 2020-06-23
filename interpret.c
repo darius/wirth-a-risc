@@ -133,14 +133,14 @@ static void register_ins(M *m, u32 f01, u32 u, u32 v, u32 a, u32 b, u32 op, u32 
             u64 sum = (u64)m->r[b] + (u64)n + (u64)carry_in;
             va = (u32)sum;
             cflag = 1u & (sum >> 32u); // TODO portable?
-            vflag = (sum != ((u64)va + (u64)(cflag << 32u)));; // XXX how exactly is this defined? is this it?
+            vflag = (sum != ((u64)va + ((u64)cflag << 32u)));; // XXX how exactly is this defined? is this it?
         }
         CASE SUB: {
             u32 carry_in = u ? field(m->flags,FC,1) : 0;
             u64 sum = (u64)m->r[b] - (u64)n + (u64)carry_in; // TODO right? i64?
             va = (u32)sum;
             cflag = 1u & (sum >> 32u); // TODO portable?
-            vflag = (sum != ((u64)va + (u64)(cflag << 32u)));; // XXX how exactly is this defined? is this it?
+            vflag = (sum != ((u64)va + ((u64)cflag << 32u)));; // XXX how exactly is this defined? is this it?
         }
         CASE MUL: {
             if (u) va = m->r[b] * n; // TODO portable?
@@ -184,7 +184,7 @@ static void branch_ins(M *m, u32 u, u32 v, u32 cond, u32 off_or_dest) {
         CASE 0x6: taken = ((bit(m->flags,FN) ^ bit(m->flags,FV))
                            | bit(m->flags,FZ));
         CASE 0x7: taken = 1;
-        // The rest mirror the above, but inverted:
+        // The rest echo the above, but complemented:
         CASE 0x8: taken = !( bit(m->flags,FN));
         CASE 0x9: taken = !( bit(m->flags,FZ));
         CASE 0xA: taken = !( bit(m->flags,FC));
@@ -198,7 +198,7 @@ static void branch_ins(M *m, u32 u, u32 v, u32 cond, u32 off_or_dest) {
     }
     if (taken) {
         // N.B. Wirth says pc+1 instead of pc for each of the next two lines,
-        //  but we already added 1 in step().
+        //  but we already added the 1 in step().
         if (v) m->r[15] = m->pc;
         m->pc = (u ? m->pc + off_or_dest // TODO portable overflow?
                    : m->r[off_or_dest]);
@@ -218,9 +218,10 @@ static void branch_ins(M *m, u32 u, u32 v, u32 cond, u32 off_or_dest) {
 
 // TODO optional tracing
 static void step(M *m) {
-    u32 ir = fetch32(m, m->pc++); // TODO portable overflow?
-    // TODO also, do any instructions besides branch_ins() use the pc value,
-    //   implying we shouldn't increment it here?
+    u32 ir = fetch32(m, m->pc++); // TODO portable overflow back to 0?
+    // We get away with incrementing m->pc here because only
+    // branch_ins() uses m->pc, and that code is written to expect
+    // m->pc has already been incremented.
     switch (ir >> 28) {
         CASE 0: case 2: // TODO well this CASEcase thing is ugly
             if (field(ir,4,12) != 0) panic("Crap in register instruction");
