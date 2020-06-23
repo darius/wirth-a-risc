@@ -133,14 +133,14 @@ static void register_ins(M *m, u32 f01, u32 u, u32 v, u32 a, u32 b, u32 op, u32 
             u64 sum = (u64)m->r[b] + (u64)n + (u64)carry_in;
             va = (u32)sum;
             cflag = 1u & (sum >> 32u); // TODO portable?
-            vflag = 0; // XXX how exactly is this defined?
+            vflag = (sum != ((u64)va + (u64)(cflag << 32u)));; // XXX how exactly is this defined? is this it?
         }
         CASE SUB: {
             u32 carry_in = u ? field(m->flags,FC,1) : 0;
             u64 sum = (u64)m->r[b] - (u64)n + (u64)carry_in; // TODO right? i64?
             va = (u32)sum;
             cflag = 1u & (sum >> 32u); // TODO portable?
-            vflag = 0; // XXX how exactly is this defined?
+            vflag = (sum != ((u64)va + (u64)(cflag << 32u)));; // XXX how exactly is this defined? is this it?
         }
         CASE MUL: {
             if (u) va = m->r[b] * n; // TODO portable?
@@ -148,7 +148,7 @@ static void register_ins(M *m, u32 f01, u32 u, u32 v, u32 a, u32 b, u32 op, u32 
         }
         CASE DIV: {
             va = m->r[b] / n; // TODO portable rounding; what on zero divide? should it be signed?
-            m->rh = 0; // XXX remainder
+            m->rh = m->r[b] % n; // XXX check Wirth's definition for this
         }
         DEFAULT:
             panic("Unknown register instruction");
