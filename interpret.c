@@ -21,6 +21,17 @@ typedef uint32_t u32;
 typedef int32_t  i32;
 typedef uint64_t u64;
 
+static u32 field(u32 value, u32 offset, u32 width) {
+    return (value >> offset) & ((1u << width) - 1);
+}
+
+// Extend a 16-bit value to a 32-bit one.
+static u32 sign_extend(u32 sign, u32 value) {
+    assert(sign == (sign & 1u));
+    assert((value >> 16u) == 0);
+    return sign ? 0xFFFF0000 | value : value; // TODO branchlessly
+}
+
 typedef struct M M;
 struct M {
     u32 r[16]; // registers
@@ -37,32 +48,33 @@ struct M {
 enum { FN, FZ, FC, FV, };
 
 static u8 fetch8(M *m, u32 addr) {
-    // XXX bounds check
-    // XXX fetch it
-    return 0; 
+    if (m->cap <= addr) panic("Out of bounds");
+    return m->mem[addr];
 }
 
 static void store8(M *m, u32 addr, u8 value) {
-    // XXX bounds check
-    // XXX store it
+    if (m->cap <= addr) panic("Out of bounds");
+    m->mem[addr] = value;
 }
 
+// TODO little-endian? or big?
 static u32 fetch32(M *m, u32 addr) {
-    // XXX bounds check
-    // XXX fetch it
-    return 0; 
+    // TODO tune this for word access, not for byte access
+    // TODO unaligned is unallowed, right?
+    if ((addr & 3) != 0) panic("Unaligned fetch");
+    u8 v0 = fetch8(m, addr);   // TODO I pick little-endian
+    u8 v1 = fetch8(m, addr+1);
+    u8 v2 = fetch8(m, addr+2);
+    u8 v3 = fetch8(m, addr+3);
+    return v0 | (v1<<8) | (v2<<16) | (v3<<24);
 }
 
 static void store32(M *m, u32 addr, u32 value) {
-    // XXX
-}
-
-static u32 field(u32 value, u32 offset, u32 width) {
-    return (value >> offset) & ((1u << width) - 1);
-}
-
-static u32 sign_extend(u32 sign, u32 value) {
-    return value; // XXX
+    if ((addr & 3) != 0) panic("Unaligned store");
+    store8(m, addr,   field(value, 0,8));
+    store8(m, addr+1, field(value, 8,8));
+    store8(m, addr+2, field(value,16,8));
+    store8(m, addr+3, field(value,24,8));
 }
 
 enum {
@@ -86,8 +98,8 @@ static i32 signed_shift_right(i32 v, u32 n) {
 }
 
 static u32 rotate_right(u32 v, u32 n) {
-    n = n & 31;
-    return (v >> n) | (v << (32-n));  // TODO correct?
+    n = n & 31u;
+    return (v >> n) | (v << (32u-n));  // TODO correct?
 }
 
 static u32 add(u32 v, u32 n) {
@@ -102,7 +114,7 @@ static void register_ins(M *m, u32 f01, u32 u, u32 v, u32 a, u32 b, u32 op, u32 
     u32 va, nflag, zflag, cflag=0, vflag=0; // result value and flags
     switch (op) {
         CASE MOV: {
-            // TODO this is the *only* place using the f01 and v arguments
+            // TODO this is the only place using the f01 and v arguments
             //  so it seems especially inefficient to always pass them.
             if      (!u)  va = n;
             else if (f01) va = n << 16u;
