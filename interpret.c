@@ -199,9 +199,9 @@ static void branch_ins(M *m, u32 u, u32 v, u32 cond, u32 off_or_dest) {
     if (taken) {
         // N.B. Wirth says pc+1 instead of pc for each of the next two lines,
         //  but we already added the 1 in step().
-        if (v) m->r[15] = m->pc;
+        if (v) m->r[15] = m->pc << 2;
         m->pc = (u ? m->pc + off_or_dest // TODO portable overflow?
-                   : m->r[off_or_dest]);
+                   : m->r[off_or_dest] >> 2);
     }
 }
 
@@ -218,7 +218,7 @@ static void branch_ins(M *m, u32 u, u32 v, u32 cond, u32 off_or_dest) {
 
 // TODO optional tracing
 static void step(M *m) {
-    u32 ir = fetch32(m, m->pc++); // TODO portable overflow back to 0?
+    u32 ir = fetch32(m, (m->pc++) << 2); // TODO portable overflow back to 0?
     // We get away with incrementing m->pc here because only
     // branch_ins() uses m->pc, and that code is written to expect
     // m->pc has already been incremented.
