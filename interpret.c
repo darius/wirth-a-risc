@@ -47,6 +47,23 @@ struct M {
 // TODO what is Wirth's endianness for these bits? Is this backwards?
 enum { FN, FZ, FC, FV, };
 
+// Opcodes for register instructions.
+enum {
+    MOV,
+    LSL,
+    ASR,
+    ROR,
+    AND,
+    ANN,
+    IOR,
+    XOR,
+    ADD,
+    SUB,
+    MUL,
+    DIV,
+    // N.B. floating-point instructions omitted
+};
+
 static u8 fetch8(M *m, u32 addr) {
     if (m->cap <= addr) panic("Out of bounds");
     return m->mem[addr];
@@ -77,23 +94,26 @@ static void store32(M *m, u32 addr, u32 value) {
     store8(m, addr+3, field(value,24,8));
 }
 
-enum {
-      MOV,
-      LSL,
-      ASR,
-      ROR,
-      AND,
-      ANN,
-      IOR,
-      XOR,
-      ADD,
-      SUB,
-      MUL,
-      DIV,
-      // N.B. floating-point instructions omitted
-};
+// Extend a 24-bit value to a 32-bit one.
+static u32 sign_extend24(u32 value) {
+    assert((value >> 8u) == 0);
+    enum { sign_bit = 1u << 23 };
+    return (value ^ sign_bit) - sign_bit;
+}
+
+static u32 sign_extend20(u32 value) {
+    assert((value >> 12u) == 0);
+    enum { sign_bit = 1u << 19 };
+    return (value ^ sign_bit) - sign_bit;
+}
+
+static i32 shift_left(u32 v, u32 n) {
+    n = n & 31u; // p. 10 of "Design of a RISC Arch. & its Impl. with an FPGA"
+    return v << n;
+}
 
 static i32 signed_shift_right(i32 v, u32 n) {
+    n = n & 31u; // p. 10 of "Design of a RISC Arch. & its Impl. with an FPGA"
     return v >> n; // XXX how in portable C?
 }
 
@@ -121,7 +141,7 @@ static void register_ins(M *m, u32 f01, u32 u, u32 v, u32 a, u32 b, u32 op, u32 
             else if (v)   va = m->flags;
             else          va = m->rh;
         }
-        CASE LSL: va = m->r[b] << n;
+        CASE LSL: va = shift_left(m->r[b], n);
         CASE ASR: va = signed_shift_right(m->r[b], n);
         CASE ROR: va = rotate_right(m->r[b], n);
         CASE AND: va = m->r[b] & n;
@@ -214,7 +234,8 @@ static void branch_ins(M *m, u32 u, u32 v, u32 cond, u32 off_or_dest) {
 #define OP   field(ir,16, 4)
 #define C    field(ir, 0, 4)
 #define IM   field(ir, 0,16)
-#define OFF  field(ir, 0,20)
+#define OFF20  sign_extend20(field(ir, 0,20)) /* TODO sure it's signed? */
+#define SOFF24 sign_extend24(field(ir, 0,24))
 
 // TODO optional tracing
 static void step(M *m) {
@@ -229,18 +250,18 @@ static void step(M *m) {
         CASE 4: case 5: case 6: case 7:
             register_ins(m, F01, U, V, A, B, OP, sign_extend(V, IM));
         CASE LDW:
-            m->r[A] = fetch32(m, add(m->r[B], OFF)); // TODO sign extend? (also below)
+            m->r[A] = fetch32(m, add(m->r[B], OFF20));
         CASE LDB:
-            m->r[A] = fetch8(m, add(m->r[B], OFF));
+            m->r[A] = fetch8(m, add(m->r[B], OFF20));
         CASE STW:
-            store32(m, add(m->r[B], OFF), m->r[A]);
+            store32(m, add(m->r[B], OFF20), m->r[A]);
         CASE STB:
-            store8(m, add(m->r[B], OFF), m->r[A] & 0xFF);
+            store8(m, add(m->r[B], OFF20), m->r[A] & 0xFF);
         CASE 0xC: case 0xD:
             if (field(ir,4,20) != 0) panic("Crap in branch instruction");
             branch_ins(m, U, V, COND, m->r[C]);
         CASE 0xE: case 0xF:
-            branch_ins(m, U, V, COND, field(ir,0,24)); // TODO sign extend?
+            branch_ins(m, U, V, COND, SOFF24);
         DEFAULT:
             panic("Unknown instruction");
     }
@@ -255,7 +276,8 @@ static void step(M *m) {
 #undef OP
 #undef C
 #undef IM
-#undef OFF
+#undef OFF20
+#undef SOFF24
 
 static void run(M *m) {
     for (int i = 0; i < 1; ++i) {  // TODO timeslices or something; and a way to HALT
