@@ -64,6 +64,14 @@ enum {
     // N.B. floating-point instructions omitted
 };
 
+// Opcodes for load/store instructions.
+enum {
+    LDW = 8,
+    LDB,
+    STW,
+    STB,
+};
+
 static u8 fetch8(M *m, u32 addr) {
     if (m->cap <= addr) panic("Out of bounds");
     return m->mem[addr];
@@ -180,13 +188,6 @@ static void register_ins(M *m, u32 f01, u32 u, u32 v, u32 a, u32 b, u32 op, u32 
     m->r[a] = va;
 }
 
-enum {
-    LDW = 8,
-    LDB,
-    STW,
-    STB,
-};
-
 static u32 bit(u32 value, u32 offset) {
     return field(value, offset, 1);
 }
@@ -195,25 +196,32 @@ static void branch_ins(M *m, u32 u, u32 v, u32 cond, u32 off_or_dest) {
     assert(u || off_or_dest < 16);
     int taken;
     switch (cond) {
-        CASE 0x0: taken =  bit(m->flags,FN);
-        CASE 0x1: taken =  bit(m->flags,FZ);
-        CASE 0x2: taken =  bit(m->flags,FC);
-        CASE 0x3: taken =  bit(m->flags,FV);
-        CASE 0x4: taken = !bit(m->flags,FC) || bit(m->flags,FZ);
-        CASE 0x5: taken =  bit(m->flags,FN) ^ bit(m->flags,FV);
-        CASE 0x6: taken = ((bit(m->flags,FN) ^ bit(m->flags,FV))
-                           | bit(m->flags,FZ));
-        CASE 0x7: taken = 1;
-        // The rest echo the above, but complemented:
-        CASE 0x8: taken = !( bit(m->flags,FN));
-        CASE 0x9: taken = !( bit(m->flags,FZ));
-        CASE 0xA: taken = !( bit(m->flags,FC));
-        CASE 0xB: taken = !( bit(m->flags,FV));
-        CASE 0xC: taken = !(!bit(m->flags,FC) || bit(m->flags,FZ));
-        CASE 0xD: taken = !( bit(m->flags,FN) ^ bit(m->flags,FV));
-        CASE 0xE: taken = !(((bit(m->flags,FN) ^ bit(m->flags,FV))
-                             | bit(m->flags,FZ)));
-        CASE 0xF: taken = !( 1);
+        CASE 000: taken =  bit(m->flags,FN);
+        CASE 010: taken = !bit(m->flags,FN);
+
+        CASE 001: taken =  bit(m->flags,FZ);
+        CASE 011: taken = !bit(m->flags,FZ);
+
+        CASE 002: taken =  bit(m->flags,FC);
+        CASE 012: taken = !bit(m->flags,FC);
+
+        CASE 003: taken =  bit(m->flags,FV);
+        CASE 013: taken = !bit(m->flags,FV);
+        
+        CASE 004: taken =   !bit(m->flags,FC) || bit(m->flags,FZ);
+        CASE 014: taken = !(!bit(m->flags,FC) || bit(m->flags,FZ));
+        
+        CASE 005: taken =    bit(m->flags,FN) ^ bit(m->flags,FV);
+        CASE 015: taken = !( bit(m->flags,FN) ^ bit(m->flags,FV));
+        
+        CASE 006: taken =   ((bit(m->flags,FN) ^ bit(m->flags,FV))
+                             | bit(m->flags,FZ));
+        CASE 016: taken = !(((bit(m->flags,FN) ^ bit(m->flags,FV))
+                            | bit(m->flags,FZ)));
+
+        CASE 007: taken =  1;
+        CASE 017: taken = !1;
+        
         DEFAULT: assert(0);
     }
     if (taken) {
