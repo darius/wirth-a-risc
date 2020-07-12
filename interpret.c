@@ -214,10 +214,10 @@ static void branch_ins(M *m, u32 u, u32 v, u32 cond, u32 off_or_dest) {
         CASE 005: taken =    bit(m->flags,FN) ^ bit(m->flags,FV);
         CASE 015: taken = !( bit(m->flags,FN) ^ bit(m->flags,FV));
         
-        CASE 006: taken =   ((bit(m->flags,FN) ^ bit(m->flags,FV))
-                             | bit(m->flags,FZ));
-        CASE 016: taken = !(((bit(m->flags,FN) ^ bit(m->flags,FV))
-                            | bit(m->flags,FZ)));
+        CASE 006: taken =  ((bit(m->flags,FN) ^ bit(m->flags,FV))
+                            | bit(m->flags,FZ));
+        CASE 016: taken = !((bit(m->flags,FN) ^ bit(m->flags,FV))
+                            | bit(m->flags,FZ));
 
         CASE 007: taken =  1;
         CASE 017: taken = !1;
