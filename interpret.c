@@ -196,33 +196,31 @@ static void branch_ins(M *m, u32 u, u32 v, u32 cond, u32 off_or_dest) {
     assert(u || off_or_dest < 16);
     int taken;
     switch (cond) {
-        CASE 000: taken =  bit(m->flags,FN);
-        CASE 010: taken = !bit(m->flags,FN);
+    CASE 000: taken =  bit(m->flags,FN);
+    CASE 010: taken = !bit(m->flags,FN);
 
-        CASE 001: taken =  bit(m->flags,FZ);
-        CASE 011: taken = !bit(m->flags,FZ);
+    CASE 001: taken =  bit(m->flags,FZ);
+    CASE 011: taken = !bit(m->flags,FZ);
 
-        CASE 002: taken =  bit(m->flags,FC);
-        CASE 012: taken = !bit(m->flags,FC);
+    CASE 002: taken =  bit(m->flags,FC);
+    CASE 012: taken = !bit(m->flags,FC);
 
-        CASE 003: taken =  bit(m->flags,FV);
-        CASE 013: taken = !bit(m->flags,FV);
-        
-        CASE 004: taken =   !bit(m->flags,FC) || bit(m->flags,FZ);
-        CASE 014: taken = !(!bit(m->flags,FC) || bit(m->flags,FZ));
-        
-        CASE 005: taken =    bit(m->flags,FN) ^ bit(m->flags,FV);
-        CASE 015: taken = !( bit(m->flags,FN) ^ bit(m->flags,FV));
-        
-        CASE 006: taken =  ((bit(m->flags,FN) ^ bit(m->flags,FV))
-                            | bit(m->flags,FZ));
-        CASE 016: taken = !((bit(m->flags,FN) ^ bit(m->flags,FV))
-                            | bit(m->flags,FZ));
+    CASE 003: taken =  bit(m->flags,FV);
+    CASE 013: taken = !bit(m->flags,FV);
 
-        CASE 007: taken =  1;
-        CASE 017: taken = !1;
-        
-        DEFAULT: assert(0);
+    CASE 004: taken =  (!bit(m->flags,FC) || bit(m->flags,FZ));
+    CASE 014: taken = !(!bit(m->flags,FC) || bit(m->flags,FZ));
+
+    CASE 005: taken =  (bit(m->flags,FN) ^ bit(m->flags,FV));
+    CASE 015: taken = !(bit(m->flags,FN) ^ bit(m->flags,FV));
+
+    CASE 006: taken =  ((bit(m->flags,FN) ^ bit(m->flags,FV)) | bit(m->flags,FZ));
+    CASE 016: taken = !((bit(m->flags,FN) ^ bit(m->flags,FV)) | bit(m->flags,FZ));
+
+    CASE 007: taken =  1;
+    CASE 017: taken = !1;
+
+    DEFAULT: assert(0);
     }
     if (taken) {
         // N.B. Wirth says pc+1 instead of pc for each of the next two lines,
